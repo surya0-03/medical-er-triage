@@ -1,0 +1,213 @@
+name: medical-er-triage-openenv
+version: 1.0.0
+tags:
+  - openenv
+  - reinforcement-learning
+  - medical-triage
+  - emergency-department
+license: mit
+author: maldini03
+description: >
+  Production-grade OpenEnv environment simulating emergency department triage.
+  Grounded in ESI algorithm, NHAMCS patient distributions, and CMS resource benchmarks.
+  Three difficulty modes: easy (5 steps), medium (12 steps), hard (20 steps).
+entrypoint: my_env.server.environment:MedicalEmergencyRoomEnv
+
+tasks:
+  easy:
+    max_steps: 5
+    termination:
+      mode: step_limit
+  medium:
+    max_steps: 12
+    termination:
+      mode: step_limit
+  hard:
+    max_steps: 20
+    termination:
+      mode: step_limit_or_esi1_deaths
+      max_esi1_deaths: 3
+
+action_schema:
+  type: object
+  additionalProperties: false
+  required:
+    - action_type
+  properties:
+    action_type:
+      type: string
+      enum:
+        - assign_esi
+        - allocate_bed
+        - discharge
+        - trigger_protocol
+        - divert
+    patient_id:
+      type:
+        - string
+        - "null"
+    esi_level:
+      type:
+        - integer
+        - "null"
+      minimum: 1
+      maximum: 5
+    bed_type:
+      type:
+        - string
+        - "null"
+      enum:
+        - icu
+        - general
+        - hallway
+        - none
+        - "null"
+    protocol_type:
+      type:
+        - string
+        - "null"
+      enum:
+        - stroke_code
+        - stemi_alert
+        - sepsis_alert
+        - trauma_alert
+        - "null"
+
+observation_schema:
+  type: object
+  additionalProperties: false
+  required:
+    - time_step
+    - patients
+    - waiting_queue
+    - icu_beds_available
+    - general_beds_available
+    - hallway_used
+    - crowding_score
+    - staff_load
+  properties:
+    time_step:
+      type: integer
+      minimum: 0
+    patients:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        required:
+          - patient_id
+          - age
+          - symptoms
+          - vitals
+          - esi_level
+          - wait_time
+          - state
+          - deterioration_count
+        properties:
+          patient_id:
+            type: string
+          age:
+            type: integer
+            minimum: 0
+            maximum: 130
+          symptoms:
+            type: array
+            minItems: 1
+            items:
+              type: string
+          vitals:
+            type: object
+            additionalProperties: false
+            required:
+              - heart_rate
+              - blood_pressure
+              - oxygen_level
+            properties:
+              heart_rate:
+                type: integer
+                minimum: 1
+              blood_pressure:
+                type: string
+              oxygen_level:
+                type: number
+                minimum: 0
+                maximum: 100
+          esi_level:
+            type: integer
+            minimum: 1
+            maximum: 5
+          wait_time:
+            type: integer
+            minimum: 0
+          state:
+            type: string
+            enum:
+              - waiting
+              - assigned_bed
+              - in_treatment
+              - completed
+              - outcome_pending
+              - resolved
+          deterioration_count:
+            type: integer
+            minimum: 0
+    waiting_queue:
+      type: array
+      items:
+        type: string
+    icu_beds_available:
+      type: integer
+      minimum: 0
+      maximum: 8
+    general_beds_available:
+      type: integer
+      minimum: 0
+      maximum: 20
+    hallway_used:
+      type: integer
+      minimum: 0
+      maximum: 3
+    crowding_score:
+      type: number
+      minimum: 0
+    staff_load:
+      type: object
+      additionalProperties: false
+      required:
+        - icu_nurses
+        - ed_nurses
+        - icu_patients
+        - ed_patients
+        - icu_nurse_load
+        - ed_nurse_load
+        - icu_ratio_load
+        - ed_ratio_load
+        - total_nurse_load
+      properties:
+        icu_nurses:
+          type: integer
+          minimum: 0
+        ed_nurses:
+          type: integer
+          minimum: 0
+        icu_patients:
+          type: integer
+          minimum: 0
+        ed_patients:
+          type: integer
+          minimum: 0
+        icu_nurse_load:
+          type: number
+          minimum: 0
+        ed_nurse_load:
+          type: number
+          minimum: 0
+        icu_ratio_load:
+          type: number
+          minimum: 0
+        ed_ratio_load:
+          type: number
+          minimum: 0
+        total_nurse_load:
+          type: number
+          minimum: 0
