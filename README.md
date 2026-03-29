@@ -153,6 +153,22 @@ Returns per-episode grading output:
 - pass/fail flag
 - difficulty, steps, and summary metadata
 
+### GET /score
+
+Returns detailed episode scoring with clinical insights:
+
+- `score` in `[0.0, 1.0]`
+- `priority_queue` — top 5 most critical waiting patients ranked by acuity
+- `time_of_day` — current simulation time (e.g. `17:00`)
+- `is_peak_hours` — whether ER is in peak arrival period
+- `acuity_score` — per-patient urgency score combining ESI, wait time, and deterioration
+- `mortality_rate` — fraction of ESI-1 patients who died
+- `avg_wait_time` — average steps patients have been waiting
+- `outcomes_pending` — delayed outcome resolutions still in progress
+
+Query parameter:
+- `session_id` (optional, defaults to `default`)
+
 ### GET /health
 
 Returns liveness metadata for orchestrators and OpenEnv runners.
