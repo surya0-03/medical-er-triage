@@ -210,7 +210,7 @@ def run_task(difficulty: str, seed: int) -> dict:
 
     # FIX Bug 1: env.reset() returns a (Observation, info) 2-tuple after the
     # environment fix — unpack correctly to avoid obs holding the raw tuple.
-    obs, _info = env.reset(seed=seed)
+    obs = env.reset(seed=seed)
 
     done = False
     total_reward = 0.0
@@ -237,8 +237,7 @@ def run_task(difficulty: str, seed: int) -> dict:
 
         # FIX Bug 2: env.step() now returns a 5-tuple (obs, reward, terminated,
         # truncated, info) — unpack all five values and derive done from both flags.
-        obs, reward, terminated, truncated, info = env.step(action)
-        done = terminated or truncated
+        obs, reward, done, info = env.step(action)
         total_reward += reward.value
         steps += 1
 
