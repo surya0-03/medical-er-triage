@@ -655,7 +655,7 @@ class MedicalEmergencyRoomEnv:
             self._general_beds_available = GENERAL_BEDS_TOTAL
         self._hallway_used = 0
 
-        initial_arrivals = 5 if self._difficulty == "hard" else 2 if self._difficulty == "medium" else 1
+        initial_arrivals = 5 if self._difficulty == "hard" else 4 if self._difficulty == "medium" else 1
         for _ in range(initial_arrivals):
             self._enqueue_new_patient()
 
