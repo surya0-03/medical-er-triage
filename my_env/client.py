@@ -18,7 +18,6 @@ class MyEnvClient:
         sid = session_id if session_id is not None else self.session_id
         if sid is not None:
             payload["session_id"] = sid
-
         response = self._post("/reset", payload)
         self.session_id = str(response.get("session_id")) if response.get("session_id") is not None else self.session_id
         return response
@@ -35,6 +34,16 @@ class MyEnvClient:
             raise RuntimeError("session_id is required. Call reset() first or provide session_id.")
         query = parse.urlencode({"session_id": sid})
         return self._get(f"/state?{query}")
+
+    def grade(self, session_id: str | None = None) -> dict[str, Any]:
+        sid = session_id if session_id is not None else self.session_id
+        if sid is None:
+            raise RuntimeError("session_id is required. Call reset() first or provide session_id.")
+        query = parse.urlencode({"session_id": sid})
+        return self._get(f"/grade?{query}")
+
+    def health(self) -> dict[str, Any]:
+        return self._get("/health")
 
     def tasks(self) -> dict[str, Any]:
         return self._get("/tasks")
