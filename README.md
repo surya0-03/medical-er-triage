@@ -1,3 +1,13 @@
+﻿---
+title: Medical ER Triage OpenEnv
+emoji: 👁
+colorFrom: red
+colorTo: blue
+sdk: docker
+pinned: false
+---
+
+
 # Medical ER Triage OpenEnv
 
 Production-grade, deterministic OpenEnv-compatible reinforcement learning environment for emergency room triage.
