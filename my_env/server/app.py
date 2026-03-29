@@ -176,6 +176,59 @@ def grade_episode(session_id: str = Query(default="default", min_length=1)) -> d
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="unknown session_id") from exc
 
+@app.get("/score")
+def detailed_score(session_id: str = Query(default="default", min_length=1)) -> dict[str, Any]:
+    try:
+        with _runtime._lock:
+            session = _runtime._sessions.get(session_id)
+            if session is None:
+                raise HTTPException(status_code=404, detail="unknown session_id; call /reset first")
+            env = session["env"]
+            s = env.state()
+            avg = float(s.get("average_step_reward", 0.0))
+            score = round(max(0.0, min(1.0, (avg + 1.45) / 2.90)), 4)
+
+            priority_queue = []
+            for runtime in env._patients.values():
+                if runtime.patient.state == "waiting":
+                    priority_queue.append({
+                        "patient_id": runtime.patient.patient_id,
+                        "true_esi": runtime.true_esi,
+                        "wait_time": runtime.patient.wait_time,
+                        "deterioration_count": runtime.patient.deterioration_count,
+                        "acuity_score": round(
+                            min(100.0,
+                                (6 - runtime.patient.esi_level) * 15.0
+                                + max(0, runtime.patient.wait_time - SAFE_WAIT_LIMITS[runtime.patient.esi_level]) * 5.0
+                                + runtime.patient.deterioration_count * 10.0
+                            ), 1
+                        ),
+                    })
+            priority_queue.sort(key=lambda x: (-x["acuity_score"], x["true_esi"]))
+
+            hour = ((env._time_step * TIME_STEP_MINUTES) // 60) % 24
+            minute = ((env._time_step * TIME_STEP_MINUTES) % 60)
+
+            return {
+                "score": score,
+                "passed": score >= 0.70,
+                "difficulty": s["difficulty"],
+                "total_steps": s["time_step"],
+                "hard_esi1_deaths": s["hard_esi1_deaths"],
+                "average_step_reward": round(avg, 6),
+                "done": s["done"],
+                "session_id": session_id,
+                "priority_queue": priority_queue[:5],
+                "time_of_day": f"{hour:02d}:{minute:02d}",
+                "is_peak_hours": 17 <= hour <= 21,
+                "waiting_count": len(env._waiting_queue),
+                "beds_in_use": len(env._beds),
+                "outcomes_pending": len(env._delayed_outcomes),
+                "mortality_rate": round(env._mortality_rate(), 4),
+                "avg_wait_time": round(env._average_wait_time(), 2),
+            }
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="unknown session_id") from exc
 
 @app.get("/health")
 def health_check() -> dict[str, Any]:
