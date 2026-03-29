@@ -242,8 +242,8 @@ curl "http://localhost:7860/state?session_id=default"
 
 ```bash
 export OPENAI_API_KEY=your_key_here
-cd my_env
-python -m baseline
+python -m my_env.baseline
+
 ```
 
 ## Baseline Scores (GPT-4o-mini, seed=42)
