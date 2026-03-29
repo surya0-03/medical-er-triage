@@ -193,11 +193,12 @@ def choose_action(obs_raw: dict, mask: dict) -> Action:
 
     # FIX Bug 7: unconditional fallback divert fires even when divert_allowed=False,
     # accumulating "invalid divert" penalties every step. Log a warning so it's
-    # visible during evaluation, then issue divert as a last resort (no no-op exists).
-    logging.warning(
-        "choose_action: no valid action found in mask — issuing divert as last resort. "
-        "mask keys: %s", list(mask.keys())
-    )
+    # No valid action — try protocol as fallback
+    for pid, protocols in mask.get("trigger_protocol", {}).items():
+        if protocols:
+            return Action(action_type="trigger_protocol", patient_id=pid, protocol_type=protocols[0])
+
+    # True last resort
     return Action(action_type="divert")
 
 
