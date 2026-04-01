@@ -29,18 +29,18 @@ tags:
 ---
 
 ## 📋 Table of Contents
-- [Overview](##overview)
-- [Why This Matters](##why-this-matters)
-- [Environment Architecture](##environment-architecture)
-- [Quick Start](##quick-start)
-- [Action & Observation Spaces](##action--observation-spaces)
-- [Tasks & Difficulty Modes](##tasks--difficulty-modes)
-- [Reward Structure](##reward-structure)
-- [Baseline Performance](##baseline-performance)
-- [API Reference](##api-reference)
-- [Project Structure](##project-structure)
-- [Deployment](##deployment)
-- [Citation & Credits](##citation--credits)
+- [Overview](#overview)
+- [Why This Matters](#why-this-matters)
+- [Environment Architecture](#environment-architecture)
+- [Quick Start](#quick-start)
+- [Action & Observation Spaces](#action--observation-spaces)
+- [Tasks & Difficulty Modes](#tasks--difficulty-modes)
+- [Reward Structure](#reward-structure)
+- [Baseline Performance](#baseline-performance)
+- [API Reference](#api-reference)
+- [Project Structure](#project-structure)
+- [Deployment](#deployment)
+- [Citation & Credits](#citation--credits)
 
 ---
 
