@@ -5,8 +5,8 @@ import os
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from .models import Action
-from .server.environment import DEFAULT_RANDOM_SEED, MedicalEmergencyRoomEnv
+from my_env.models import Action
+from my_env.server.environment import DEFAULT_RANDOM_SEED, MedicalEmergencyRoomEnv
 
 
 TaskName = Literal["easy", "medium", "hard"]
@@ -31,6 +31,8 @@ class TaskResult:
 
 
 class DeterministicFallbackAgent:
+    """Rule-based fallback agent that requires no API key."""
+
     def choose_action(self, task: TaskName, env_state: dict[str, Any], action_mask: dict[str, Any]) -> Action:  # noqa: ARG002
         assign_ids = sorted(action_mask.get("assign_esi_patient_ids", []))
         if assign_ids:
@@ -65,7 +67,13 @@ class DeterministicFallbackAgent:
         return Action(action_type="divert")
 
 
-class OpenAIBaselineAgent:
+class LLMBaselineAgent:
+    """
+    LLM-powered agent. Works with any OpenAI-compatible API:
+      - OpenAI:  set OPENAI_API_KEY
+      - Groq:    set GROQ_API_KEY  (free tier available at console.groq.com)
+    """
+
     def __init__(self, client: Any, model: str, temperature: float, seed: int) -> None:
         self._client = client
         self._model = model
@@ -87,7 +95,7 @@ class OpenAIBaselineAgent:
 
         content = completion.choices[0].message.content
         if content is None:
-            raise RuntimeError("OpenAI response content is empty")
+            raise RuntimeError("LLM response content is empty")
 
         payload = self._extract_json(content)
         return Action(
@@ -144,7 +152,7 @@ class OpenAIBaselineAgent:
                 content = "\n".join(lines[1:-1]).strip()
         payload = json.loads(content)
         if not isinstance(payload, dict):
-            raise RuntimeError("OpenAI output must be a JSON object")
+            raise RuntimeError("LLM output must be a JSON object")
         return payload
 
 
@@ -186,26 +194,65 @@ class BaselineRunner:
         )
 
 
-def main() -> None:
-    fallback_mode = os.environ.get("OPENAI_BASELINE_FALLBACK", "").strip().lower()
-    api_key = os.environ.get("OPENAI_API_KEY")
-    model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+def _build_client() -> tuple[Any, str, str]:
+    """
+    Returns (client, model, label) based on available environment variables.
+
+    Priority:
+      1. OPENAI_API_KEY  → OpenAI API  (model: OPENAI_MODEL or gpt-4o-mini)
+      2. GROQ_API_KEY    → Groq API    (model: GROQ_MODEL or llama-3.3-70b-versatile)
+      3. Neither set     → deterministic fallback (no client needed)
+    """
+    from openai import OpenAI  # noqa: PLC0415
+
+    openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    groq_key = os.environ.get("GROQ_API_KEY", "").strip()
     inference_seed = int(os.environ.get("OPENAI_INFERENCE_SEED", "12345"))
 
-    run_label = "DeterministicFallback"
+    if openai_key:
+        model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+        client = OpenAI(api_key=openai_key)
+        return client, model, "OpenAI"
+
+    if groq_key:
+        model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+        client = OpenAI(
+            api_key=groq_key,
+            base_url="https://api.groq.com/openai/v1",
+        )
+        return client, model, f"Groq ({model})"
+
+    return None, "", "DeterministicFallback"
+
+
+def main() -> None:
+    fallback_mode = os.environ.get("OPENAI_BASELINE_FALLBACK", "").strip().lower()
+    inference_seed = int(os.environ.get("OPENAI_INFERENCE_SEED", "12345"))
+
     runner: BaselineRunner
+    run_label: str
 
-    if api_key and fallback_mode != "deterministic":
-        try:
-            from openai import OpenAI  # Optional dependency
-
-            client = OpenAI(api_key=api_key)
-            runner = BaselineRunner(agent=OpenAIBaselineAgent(client=client, model=model, temperature=0.0, seed=inference_seed))
-            run_label = "OpenAI"
-        except Exception:
-            runner = BaselineRunner(agent=DeterministicFallbackAgent())
-    else:
+    if fallback_mode == "deterministic":
+        print("Running deterministic fallback baseline (no API key required).")
         runner = BaselineRunner(agent=DeterministicFallbackAgent())
+        run_label = "DeterministicFallback"
+    else:
+        try:
+            client, model, run_label = _build_client()
+            if client is not None:
+                agent = LLMBaselineAgent(client=client, model=model, temperature=0.0, seed=inference_seed)
+                runner = BaselineRunner(agent=agent)
+                print(f"Running {run_label} baseline.")
+            else:
+                print("No API key found. Set OPENAI_API_KEY or GROQ_API_KEY.")
+                print("Falling back to deterministic baseline.")
+                runner = BaselineRunner(agent=DeterministicFallbackAgent())
+                run_label = "DeterministicFallback"
+        except Exception as exc:
+            print(f"Failed to initialise LLM client: {exc}")
+            print("Falling back to deterministic baseline.")
+            runner = BaselineRunner(agent=DeterministicFallbackAgent())
+            run_label = "DeterministicFallback"
 
     task_order: list[TaskName] = ["easy", "medium", "hard"]
     seeds = {
@@ -216,7 +263,7 @@ def main() -> None:
 
     results = [runner.run_task(task=task, seed=seeds[task]) for task in task_order]
 
-    print(f"=== {run_label} Baseline Scores ===")
+    print(f"\n=== {run_label} Baseline Scores ===")
     for result in results:
         print(
             f"task={result.task} "
@@ -226,6 +273,11 @@ def main() -> None:
             f"terminated={result.terminated} "
             f"truncated={result.truncated}"
         )
+
+    macro_avg = sum(r.average_reward for r in results) / len(results)
+    macro_total = sum(r.total_reward for r in results)
+    print(f"macro_avg_reward={macro_avg:.6f}")
+    print(f"macro_total_reward={macro_total:.6f}")
 
 
 if __name__ == "__main__":
