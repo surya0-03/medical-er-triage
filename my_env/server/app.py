@@ -328,9 +328,8 @@ def get_baseline() -> dict[str, Any]:
     return {
         "name": "openai_policy_baseline",
         "seed": DEFAULT_RANDOM_SEED,
-        "required_env": ["OPENAI_API_KEY"],
+        "required_env": ["HF_TOKEN", "API_BASE_URL", "MODEL_NAME"],
         "optional_env": {
-            "OPENAI_MODEL": "gpt-4o-mini",
             "OPENAI_INFERENCE_SEED": "12345",
         },
         "arrival_model": {
