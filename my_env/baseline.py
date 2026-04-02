@@ -188,8 +188,9 @@ class BaselineRunner:
 
 def main() -> None:
     fallback_mode = os.environ.get("OPENAI_BASELINE_FALLBACK", "").strip().lower()
-    api_key = os.environ.get("OPENAI_API_KEY")
-    model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+    api_key = os.environ.get("HF_TOKEN", os.environ.get("OPENAI_API_KEY", ""))
+    api_base_url = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
+    model = os.environ.get("MODEL_NAME", os.environ.get("OPENAI_MODEL", "gpt-4o-mini"))
     inference_seed = int(os.environ.get("OPENAI_INFERENCE_SEED", "12345"))
 
     run_label = "DeterministicFallback"
@@ -199,9 +200,9 @@ def main() -> None:
         try:
             from openai import OpenAI  # Optional dependency
 
-            client = OpenAI(api_key=api_key)
+            client = OpenAI(base_url=api_base_url, api_key=api_key)
             runner = BaselineRunner(agent=OpenAIBaselineAgent(client=client, model=model, temperature=0.0, seed=inference_seed))
-            run_label = "OpenAI"
+            run_label = f"Groq ({model})"
         except Exception:
             runner = BaselineRunner(agent=DeterministicFallbackAgent())
     else:
