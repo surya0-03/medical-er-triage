@@ -109,12 +109,19 @@ def build_user_prompt(task: str, obs: dict[str, Any], action_mask: dict[str, Any
     for p in patients:
         pid = str(p["patient_id"])
         if pid in queue_index:
+            vitals = p.get("vitals", {})
             waiting_patients.append({
                 "patient_id": pid,
                 "queue_position": queue_index[pid],
                 "esi_level": int(p["esi_level"]),
                 "wait_time": int(p["wait_time"]),
                 "symptoms": list(p["symptoms"]),
+                "vitals": {
+                    "heart_rate": vitals.get("heart_rate"),
+                    "blood_pressure": vitals.get("blood_pressure"),
+                    "oxygen_level": vitals.get("oxygen_level"),
+                },
+                "deterioration_count": int(p.get("deterioration_count", 0)),
                 "state": str(p["state"]),
             })
 
@@ -147,11 +154,19 @@ def parse_action(content: str) -> dict[str, Any]:
     return payload
 
 
-def deterministic_fallback(action_mask: dict[str, Any]) -> dict[str, Any]:
+def deterministic_fallback(action_mask: dict[str, Any], obs: dict[str, Any] | None = None) -> dict[str, Any]:
     assign_ids = sorted(action_mask.get("assign_esi_patient_ids", []))
     if assign_ids:
-        return {"action_type": "assign_esi", "patient_id": assign_ids[0],
-                "esi_level": 3, "bed_type": None, "protocol_type": None}
+        # Use true ESI from observation state instead of hardcoded 3
+        patient_esi: dict[str, int] = {}
+        if obs is not None:
+            observation = obs.get("observation", obs)
+            for p in observation.get("patients", []):
+                patient_esi[str(p["patient_id"])] = int(p["esi_level"])
+        pid = assign_ids[0]
+        esi_level = patient_esi.get(pid, 3)
+        return {"action_type": "assign_esi", "patient_id": pid,
+                "esi_level": esi_level, "bed_type": None, "protocol_type": None}
 
     allocate = action_mask.get("allocate_bed", {})
     for pid in sorted(allocate.keys()):
@@ -184,7 +199,7 @@ def choose_action(
     action_mask: dict[str, Any],
 ) -> dict[str, Any]:
     if client is None:
-        return deterministic_fallback(action_mask)
+        return deterministic_fallback(action_mask, obs)
 
     prompt = build_user_prompt(task, obs, action_mask)
     try:
@@ -202,7 +217,7 @@ def choose_action(
         return parse_action(content)
     except Exception as exc:
         print(f"[DEBUG] LLM call failed: {exc}", flush=True, file=sys.stderr)
-        return deterministic_fallback(action_mask)
+        return deterministic_fallback(action_mask, obs)
 
 
 # ── Task runner ───────────────────────────────────────────────────────────────
@@ -266,6 +281,19 @@ def main() -> None:
         print("No HF_TOKEN/GROQ_API_KEY found. Using deterministic fallback.", file=sys.stderr)
 
     env_client = ERTriageEnvClient(base_url=ENV_BASE_URL)
+
+    # Warm up the HF Space — retries until healthy or times out after 90s
+    import time
+    for attempt in range(9):
+        try:
+            health = env_client._get("/health")
+            if health.get("status") == "healthy":
+                print(f"[DEBUG] Space healthy after {attempt} retries", flush=True, file=sys.stderr)
+                break
+        except Exception:
+            pass
+        print(f"[DEBUG] Waiting for Space to wake (attempt {attempt + 1}/9)...", flush=True, file=sys.stderr)
+        time.sleep(10)
 
     for task in ("easy", "medium", "hard"):
         run_task(task=task, client=client, env_client=env_client)  # type: ignore[arg-type]
