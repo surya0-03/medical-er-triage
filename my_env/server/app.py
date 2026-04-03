@@ -4,7 +4,7 @@ from threading import Lock
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, Field, StrictStr, model_validator
+from pydantic import BaseModel, Field
 
 from .environment import (
     ARRIVAL_BASE_RATE,
@@ -52,20 +52,12 @@ from ..models import Action
 
 
 class ResetRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
+    # No strict=True — accept both int seed and string coercion from validator
     # Accept both "task" (OpenEnv standard) and "difficulty" (legacy) field names
     task: Literal["easy", "medium", "hard"] | None = None
     difficulty: Literal["easy", "medium", "hard"] | None = None
     seed: int = Field(default=DEFAULT_RANDOM_SEED)
-    session_id: StrictStr | None = None
-
-    @model_validator(mode="after")
-    def resolve_task_or_difficulty(self) -> "ResetRequest":
-        if self.task is None and self.difficulty is None:
-            # Default to medium if neither provided
-            object.__setattr__(self, "difficulty", "medium")
-        return self
+    session_id: str | None = None
 
     @property
     def resolved_difficulty(self) -> Literal["easy", "medium", "hard"]:
@@ -73,9 +65,7 @@ class ResetRequest(BaseModel):
 
 
 class StepRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    session_id: StrictStr | None = None
+    session_id: str | None = None
     action: Action
 
 
