@@ -4,7 +4,7 @@ from threading import Lock
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, Field, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictStr, model_validator
 
 from .environment import (
     ARRIVAL_BASE_RATE,
@@ -54,9 +54,22 @@ from ..models import Action
 class ResetRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    difficulty: Literal["easy", "medium", "hard"] = "medium"
+    # Accept both "task" (OpenEnv standard) and "difficulty" (legacy) field names
+    task: Literal["easy", "medium", "hard"] | None = None
+    difficulty: Literal["easy", "medium", "hard"] | None = None
     seed: int = Field(default=DEFAULT_RANDOM_SEED)
     session_id: StrictStr | None = None
+
+    @model_validator(mode="after")
+    def resolve_task_or_difficulty(self) -> "ResetRequest":
+        if self.task is None and self.difficulty is None:
+            # Default to medium if neither provided
+            object.__setattr__(self, "difficulty", "medium")
+        return self
+
+    @property
+    def resolved_difficulty(self) -> Literal["easy", "medium", "hard"]:
+        return self.task or self.difficulty or "medium"
 
 
 class StepRequest(BaseModel):
@@ -90,6 +103,7 @@ class EnvironmentServerState:
             observation = env.reset(seed=seed)
             return {
                 "observation": observation.model_dump(mode="python"),
+                "action_mask": env.get_action_mask(),
                 "difficulty": difficulty,
                 "seed": seed,
                 "session_id": sid,
@@ -108,6 +122,7 @@ class EnvironmentServerState:
             truncated = bool(info.get("truncated", False))
             return {
                 "observation": observation.model_dump(mode="python"),
+                "action_mask": env.get_action_mask(),
                 "reward": reward.model_dump(mode="python"),
                 "terminated": terminated,
                 "truncated": truncated,
@@ -124,6 +139,7 @@ class EnvironmentServerState:
             env = session["env"]
             state = env.state()
             state["session_id"] = sid
+            state["action_mask"] = env.get_action_mask()
             return state
 
 
@@ -133,7 +149,7 @@ _runtime = EnvironmentServerState()
 
 @app.post("/reset")
 def reset_environment(request: ResetRequest) -> dict[str, Any]:
-    return _runtime.reset(difficulty=request.difficulty, seed=request.seed, session_id=request.session_id)
+    return _runtime.reset(difficulty=request.resolved_difficulty, seed=request.seed, session_id=request.session_id)
 
 
 @app.post("/step")
