@@ -11,7 +11,11 @@ dependencies = [
   "fastapi>=0.111.0",
   "pydantic>=2.7.0",
   "uvicorn>=0.30.0",
+  "openenv-core>=0.2.0",
 ]
+
+[project.scripts]
+server = "my_env.server.app:main"
 
 [tool.setuptools]
 packages = ["my_env", "my_env.server"]
