@@ -36,6 +36,75 @@ PRIORITY: Always handle the most critical patients first (lowest ESI number = mo
 
 TASK_SEEDS: dict[str, int] = {"easy": 42, "medium": 43, "hard": 44}
 
+# ── Symptom/vitals-based ESI inference (used by deterministic fallback) ───────
+
+def infer_esi_from_patient(patient: dict[str, Any]) -> int:
+    """Infer ESI level from vitals and symptoms — mirrors demo.py logic."""
+    vitals = patient.get("vitals", {})
+    symptoms = [s.lower() for s in patient.get("symptoms", [])]
+    hr = vitals.get("heart_rate", 80)
+    spo2 = float(vitals.get("oxygen_level", 98.0))
+    bp_str = str(vitals.get("blood_pressure", "120/80"))
+    try:
+        systolic = int(bp_str.split("/")[0])
+    except Exception:
+        systolic = 120
+
+    critical = {
+        "stridor", "cyanosis", "severe dyspnea", "respiratory distress",
+        "hematemesis", "syncope", "polytrauma", "recurrent seizures",
+        "sudden coma", "apneic", "altered mental status",
+    }
+    if any(any(c in s for c in critical) for s in symptoms):
+        return 1
+    if spo2 < 88 or hr > 140 or hr < 40 or systolic < 70:
+        return 1
+
+    emergent = {
+        "chest pain", "crushing chest pain", "chest pressure",
+        "facial droop", "slurred speech", "weakness",
+        "shortness of breath", "diaphoresis", "left arm pain",
+        "wheezing", "chest tightness", "suicidal", "severe headache",
+        "melena", "lightheadedness", "somnolence", "pinpoint pupils",
+    }
+    if any(any(e in s for e in emergent) for s in symptoms):
+        return 2
+    if spo2 < 92 or hr > 120 or systolic < 85:
+        return 2
+
+    urgent = {
+        "abdominal pain", "fever", "cough", "vomiting", "diarrhea",
+        "flank pain", "hematuria", "fracture", "deformity",
+        "productive cough", "headache", "photophobia",
+    }
+    if any(any(u in s for u in urgent) for s in symptoms):
+        return 3
+    if hr > 100 or spo2 < 95:
+        return 3
+
+    semi_urgent = {"sprained", "ear pain", "laceration", "dysuria", "mild", "minor", "tooth"}
+    if any(any(u in s for u in semi_urgent) for s in symptoms):
+        return 4
+
+    return 5
+
+
+def match_protocol(patient: dict[str, Any], available_protocols: list[str]) -> str | None:
+    """Return the first protocol whose symptoms match >= 2 keywords, else None."""
+    symptoms = [s.lower() for s in patient.get("symptoms", [])]
+    protocol_keywords: dict[str, list[str]] = {
+        "stroke_code":  ["facial droop", "slurred speech", "weakness"],
+        "stemi_alert":  ["chest pain", "diaphoresis", "shortness of breath", "crushing chest"],
+        "sepsis_alert": ["fever", "tachycardia", "altered mental status"],
+        "trauma_alert": ["polytrauma", "hypotension", "bleeding"],
+    }
+    for protocol in available_protocols:
+        keywords = protocol_keywords.get(protocol, [])
+        matches = sum(1 for kw in keywords if any(kw in s for s in symptoms))
+        if matches >= 2:
+            return protocol
+    return None
+
 
 # ── Logging (mandatory stdout format) ────────────────────────────────────────
 
@@ -163,14 +232,18 @@ def parse_action(content: str) -> dict[str, Any]:
 
 
 def deterministic_fallback(action_mask: dict[str, Any], obs: dict[str, Any] | None = None) -> dict[str, Any]:
-    # Build a patient_id -> ESI map from the observation so we can prioritise correctly
+    # Build patient lookup maps from observation
     patient_esi: dict[str, int] = {}
+    patient_map: dict[str, dict[str, Any]] = {}
     if obs is not None:
         observation = obs.get("observation", obs)
         for p in observation.get("patients", []):
-            patient_esi[str(p["patient_id"])] = int(p["esi_level"])
+            pid = str(p["patient_id"])
+            patient_map[pid] = p
+            # Infer ESI from symptoms/vitals rather than trusting public esi_level
+            patient_esi[pid] = infer_esi_from_patient(p)
 
-    # 1. assign_esi: pick most critical (lowest ESI) untriaged patient
+    # 1. assign_esi: pick most critical (lowest inferred ESI) untriaged patient
     assign_ids = action_mask.get("assign_esi_patient_ids", [])
     if assign_ids:
         pid = min(assign_ids, key=lambda p: (patient_esi.get(p, 3), p))
@@ -178,7 +251,7 @@ def deterministic_fallback(action_mask: dict[str, Any], obs: dict[str, Any] | No
         return {"action_type": "assign_esi", "patient_id": pid,
                 "esi_level": esi_level, "bed_type": None, "protocol_type": None}
 
-    # 2. allocate_bed: pick most critical patient, use correct bed for their ESI
+    # 2. allocate_bed: most critical patient first, correct bed for their ESI
     allocate = action_mask.get("allocate_bed", {})
     if allocate:
         sorted_pids = sorted(allocate.keys(), key=lambda p: (patient_esi.get(p, 3), p))
@@ -193,13 +266,17 @@ def deterministic_fallback(action_mask: dict[str, Any], obs: dict[str, Any] | No
                 return {"action_type": "allocate_bed", "patient_id": pid,
                         "bed_type": bed, "esi_level": None, "protocol_type": None}
 
-    # 3. trigger_protocol: pick first available
+    # 3. trigger_protocol: only if symptoms actually match (avoids -0.30 penalty)
     protocol_map = action_mask.get("trigger_protocol", {})
     for pid in sorted(protocol_map.keys()):
-        protocols = sorted(protocol_map[pid])
-        if protocols:
+        protocols = protocol_map[pid]
+        if not protocols:
+            continue
+        patient = patient_map.get(pid, {})
+        matched = match_protocol(patient, protocols)
+        if matched:
             return {"action_type": "trigger_protocol", "patient_id": pid,
-                    "protocol_type": protocols[0], "esi_level": None, "bed_type": None}
+                    "protocol_type": matched, "esi_level": None, "bed_type": None}
 
     # 4. discharge: pick first eligible
     discharge_ids = action_mask.get("discharge_patient_ids", [])
