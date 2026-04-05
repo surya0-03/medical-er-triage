@@ -23,13 +23,16 @@ INFERENCE_SEED: int = int(os.getenv("OPENAI_INFERENCE_SEED", "12345"))
 BENCHMARK: str = "medical-er-triage"
 TaskName = Literal["easy", "medium", "hard"]
 
-SYSTEM_PROMPT = (
-    "You are a medical ER triage policy. "
-    "Return exactly one JSON object with keys: action_type, patient_id, esi_level, bed_type, protocol_type. "
-    "Valid action_type values: assign_esi, allocate_bed, discharge, trigger_protocol, divert. "
-    "Use null for fields not required by the selected action. "
-    "Return only the JSON object, no explanation."
-)
+SYSTEM_PROMPT = """You are a medical ER triage policy. Return exactly one JSON object with keys: action_type, patient_id, esi_level, bed_type, protocol_type. Use null for unused fields. Return only the JSON, no explanation.
+
+SCORING RULES (maximise reward):
+- assign_esi: exact ESI match=+0.50, off by 1=+0.25, off by 2=+0.10. NEVER assign ESI1 patient as 3/4/5 (-0.50 penalty). NEVER assign ESI2 as 4/5 (-0.30 penalty). Always use the action_mask assign_esi_patient_ids list.
+- allocate_bed: ESI1/2 → "icu" (+0.15). ESI3 → "general" (+0.10). ESI4/5 → "general" (+0.10, never "icu" or you get -0.10). ESI1/2 in hallway = -0.50 penalty. Only allocate beds from the action_mask allocate_bed map.
+- trigger_protocol: correct match=+0.20, wrong=-0.30. Protocol rules: stroke_code needs [facial droop/slurred speech/unilateral weakness] + ESI≤2 + icu bed. stemi_alert needs [crushing chest pain/diaphoresis/shortness of breath] + ESI≤2 + icu bed. sepsis_alert needs [fever/tachycardia/altered mental status] + ESI≤2 + general bed. trauma_alert needs [polytrauma/hypotension/active bleeding] + ESI≤1 + icu bed.
+- discharge: only for ESI4/5 patients who have waited past safe limit. Use action_mask discharge_patient_ids.
+- divert: only when overloaded (divert_allowed=true). patient_id must be null.
+
+PRIORITY: Always handle the most critical patients first (lowest ESI number = most critical). Follow the action_mask exactly — only act on IDs listed there."""
 
 TASK_SEEDS: dict[str, int] = {"easy": 42, "medium": 43, "hard": 44}
 
@@ -160,27 +163,37 @@ def parse_action(content: str) -> dict[str, Any]:
 
 
 def deterministic_fallback(action_mask: dict[str, Any], obs: dict[str, Any] | None = None) -> dict[str, Any]:
-    assign_ids = sorted(action_mask.get("assign_esi_patient_ids", []))
+    # Build a patient_id -> ESI map from the observation so we can prioritise correctly
+    patient_esi: dict[str, int] = {}
+    if obs is not None:
+        observation = obs.get("observation", obs)
+        for p in observation.get("patients", []):
+            patient_esi[str(p["patient_id"])] = int(p["esi_level"])
+
+    # 1. assign_esi: pick most critical (lowest ESI) untriaged patient
+    assign_ids = action_mask.get("assign_esi_patient_ids", [])
     if assign_ids:
-        # Use true ESI from observation state instead of hardcoded 3
-        patient_esi: dict[str, int] = {}
-        if obs is not None:
-            observation = obs.get("observation", obs)
-            for p in observation.get("patients", []):
-                patient_esi[str(p["patient_id"])] = int(p["esi_level"])
-        pid = assign_ids[0]
+        pid = min(assign_ids, key=lambda p: (patient_esi.get(p, 3), p))
         esi_level = patient_esi.get(pid, 3)
         return {"action_type": "assign_esi", "patient_id": pid,
                 "esi_level": esi_level, "bed_type": None, "protocol_type": None}
 
+    # 2. allocate_bed: pick most critical patient, use correct bed for their ESI
     allocate = action_mask.get("allocate_bed", {})
-    for pid in sorted(allocate.keys()):
-        choices = set(allocate[pid])
-        bed = "icu" if "icu" in choices else "general" if "general" in choices else "hallway"
-        if bed in choices:
-            return {"action_type": "allocate_bed", "patient_id": pid,
-                    "bed_type": bed, "esi_level": None, "protocol_type": None}
+    if allocate:
+        sorted_pids = sorted(allocate.keys(), key=lambda p: (patient_esi.get(p, 3), p))
+        for pid in sorted_pids:
+            choices = set(allocate[pid])
+            esi = patient_esi.get(pid, 3)
+            if esi <= 2:
+                bed = "icu" if "icu" in choices else "general" if "general" in choices else "hallway" if "hallway" in choices else None
+            else:
+                bed = "general" if "general" in choices else "hallway" if "hallway" in choices else "icu" if "icu" in choices else None
+            if bed is not None:
+                return {"action_type": "allocate_bed", "patient_id": pid,
+                        "bed_type": bed, "esi_level": None, "protocol_type": None}
 
+    # 3. trigger_protocol: pick first available
     protocol_map = action_mask.get("trigger_protocol", {})
     for pid in sorted(protocol_map.keys()):
         protocols = sorted(protocol_map[pid])
@@ -188,9 +201,15 @@ def deterministic_fallback(action_mask: dict[str, Any], obs: dict[str, Any] | No
             return {"action_type": "trigger_protocol", "patient_id": pid,
                     "protocol_type": protocols[0], "esi_level": None, "bed_type": None}
 
-    discharge_ids = sorted(action_mask.get("discharge_patient_ids", []))
+    # 4. discharge: pick first eligible
+    discharge_ids = action_mask.get("discharge_patient_ids", [])
     if discharge_ids:
         return {"action_type": "discharge", "patient_id": discharge_ids[0],
+                "esi_level": None, "bed_type": None, "protocol_type": None}
+
+    # 5. divert only if allowed
+    if action_mask.get("divert_allowed", False):
+        return {"action_type": "divert", "patient_id": None,
                 "esi_level": None, "bed_type": None, "protocol_type": None}
 
     return {"action_type": "divert", "patient_id": None,
