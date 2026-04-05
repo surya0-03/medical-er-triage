@@ -3,7 +3,7 @@ from __future__ import annotations
 from threading import Lock
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from .environment import (
@@ -138,7 +138,15 @@ _runtime = EnvironmentServerState()
 
 
 @app.post("/reset")
-def reset_environment(request: ResetRequest) -> dict[str, Any]:
+async def reset_environment(raw_request: Request) -> dict[str, Any]:
+    # OpenEnv checker POSTs /reset with an empty body — handle gracefully
+    try:
+        body = await raw_request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict) or body is None:
+        body = {}
+    request = ResetRequest(**body)
     return _runtime.reset(difficulty=request.resolved_difficulty, seed=request.seed, session_id=request.session_id)
 
 
