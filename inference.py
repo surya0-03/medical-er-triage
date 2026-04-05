@@ -96,6 +96,11 @@ class ERTriageEnvClient:
         data = self.state()
         return data.get("action_mask", {})
 
+    def _get(self, path: str) -> dict[str, Any]:
+        resp = requests.get(f"{self._base}{path}", timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+
 
 # ── LLM agent ────────────────────────────────────────────────────────────────
 
