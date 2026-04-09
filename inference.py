@@ -10,9 +10,9 @@ import requests
 from openai import OpenAI
 
 # ── Required env vars (per hackathon spec) ────────────────────────────────────
-API_BASE_URL: str = os.environ["API_BASE_URL"]                 
+API_BASE_URL: str = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME: str = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
-API_KEY: str = os.environ["API_KEY"]                            
+API_KEY: str = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or ""
 
 # ── Environment endpoint (your HF Space) ──────────────────────────────────────
 ENV_BASE_URL: str = os.getenv(
