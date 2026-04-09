@@ -12,7 +12,7 @@ from openai import OpenAI
 # ── Required env vars (per hackathon spec) ────────────────────────────────────
 API_BASE_URL: str = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
 MODEL_NAME: str = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
-HF_TOKEN: str = os.getenv("HF_TOKEN", os.getenv("GROQ_API_KEY", ""))
+API_KEY: str = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or ""
 
 # ── Environment endpoint (your HF Space) ──────────────────────────────────────
 ENV_BASE_URL: str = os.getenv(
@@ -39,7 +39,6 @@ TASK_SEEDS: dict[str, int] = {"easy": 42, "medium": 43, "hard": 44}
 # ── Symptom/vitals-based ESI inference (used by deterministic fallback) ───────
 
 def infer_esi_from_patient(patient: dict[str, Any]) -> int:
-    """Infer ESI level from vitals and symptoms — mirrors demo.py logic."""
     vitals = patient.get("vitals", {})
     symptoms = [s.lower() for s in patient.get("symptoms", [])]
     hr = vitals.get("heart_rate", 80)
@@ -90,7 +89,6 @@ def infer_esi_from_patient(patient: dict[str, Any]) -> int:
 
 
 def match_protocol(patient: dict[str, Any], available_protocols: list[str]) -> str | None:
-    """Return the first protocol whose symptoms match >= 2 keywords, else None."""
     symptoms = [s.lower() for s in patient.get("symptoms", [])]
     protocol_keywords: dict[str, list[str]] = {
         "stroke_code":  ["facial droop", "slurred speech", "weakness"],
@@ -121,16 +119,14 @@ def log_step(step: int, action: str, reward: float, done: bool, error: str | Non
     )
 
 
-def log_end(success: bool, steps: int, rewards: list[float]) -> None:
+def log_end(success: bool, steps: int, score: float, rewards: list[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} rewards={rewards_str}", flush=True)
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 
 # ── Environment HTTP client ───────────────────────────────────────────────────
 
 class ERTriageEnvClient:
-    """Thin HTTP wrapper around the FastAPI environment."""
-
     def __init__(self, base_url: str) -> None:
         self._base = base_url
         self._session_id: str = "default"
@@ -327,6 +323,7 @@ def run_task(
     rewards: list[float] = []
     steps_taken = 0
     success = False
+    score = 1e-6
 
     try:
         obs = env_client.reset(difficulty=task, seed=seed)
@@ -350,14 +347,16 @@ def run_task(
 
             obs = result
 
-        success = sum(rewards) > 0.0
+        raw_score = sum(rewards) / len(rewards) if rewards else 0.0
+        score = max(1e-6, min(1 - 1e-6, raw_score))
+        success = score >= 0.5
 
     except Exception as exc:
         print(f"[DEBUG] Task {task} error: {exc}", flush=True, file=sys.stderr)
         success = False
 
     finally:
-        log_end(success=success, steps=steps_taken, rewards=rewards)
+        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
