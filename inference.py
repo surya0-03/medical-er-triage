@@ -294,13 +294,11 @@ def deterministic_fallback(action_mask: dict[str, Any], obs: dict[str, Any] | No
 
 
 def choose_action(
-    client: OpenAI | None,
+    client: OpenAI,
     task: str,
     obs: dict[str, Any],
     action_mask: dict[str, Any],
 ) -> dict[str, Any]:
-    if client is None:
-        return deterministic_fallback(action_mask, obs)
 
     prompt = build_user_prompt(task, obs, action_mask)
     try:
@@ -325,7 +323,7 @@ def choose_action(
 
 def run_task(
     task: TaskName,
-    client: OpenAI | None,
+    client: OpenAI,
     env_client: ERTriageEnvClient,
 ) -> None:
     seed = TASK_SEEDS[task]
@@ -371,12 +369,8 @@ def run_task(
 
 def main() -> None:
     # Build OpenAI-compatible client using Scaler-injected env vars
-    client: OpenAI | None = None
-    try:
-        client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-        print(f"Using LLM: {MODEL_NAME} @ {API_BASE_URL}", flush=True, file=sys.stderr)
-    except Exception as exc:
-        print(f"[DEBUG] Client init failed: {exc}", flush=True, file=sys.stderr)
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+    print(f"Using LLM: {MODEL_NAME} @ {API_BASE_URL}", flush=True, file=sys.stderr)
 
     env_client = ERTriageEnvClient(base_url=ENV_BASE_URL)
 
@@ -394,7 +388,7 @@ def main() -> None:
         time.sleep(10)
 
     for task in ("easy", "medium", "hard"):
-        run_task(task=task, client=client, env_client=env_client)  # type: ignore[arg-type]
+        run_task(task=task, client=client, env_client=env_client)
 
 
 if __name__ == "__main__":
