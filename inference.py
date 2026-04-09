@@ -10,9 +10,9 @@ import requests
 from openai import OpenAI
 
 # ── Required env vars (per hackathon spec) ────────────────────────────────────
-API_BASE_URL: str = os.environ["API_BASE_URL"]                  # ✅ FIXED: no Groq fallback
+API_BASE_URL: str = os.environ["API_BASE_URL"]                 
 MODEL_NAME: str = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
-HF_TOKEN: str = os.environ["HF_TOKEN"]                          # ✅ FIXED: no GROQ_API_KEY fallback
+API_KEY: str = os.environ["API_KEY"]                            
 
 # ── Environment endpoint (your HF Space) ──────────────────────────────────────
 ENV_BASE_URL: str = os.getenv(
@@ -373,7 +373,7 @@ def main() -> None:
     # Build OpenAI-compatible client using Scaler-injected env vars
     client: OpenAI | None = None
     try:
-        client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+        client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
         print(f"Using LLM: {MODEL_NAME} @ {API_BASE_URL}", flush=True, file=sys.stderr)
     except Exception as exc:
         print(f"[DEBUG] Client init failed: {exc}", flush=True, file=sys.stderr)
