@@ -211,3 +211,19 @@ observation_schema:
         total_nurse_load:
           type: number
           minimum: 0
+
+endpoints:
+  health: /health
+  reset:  /reset
+  step:   /step
+  state:  /state
+
+scoring:
+  reward_range: [-1.0, 1.0]
+  success_threshold: 0.0
+  score_formula: sum(step_rewards)
+
+constraints:
+  max_runtime_seconds: 1200
+  max_memory_gb: 8
+  max_vcpu: 2
