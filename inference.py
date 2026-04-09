@@ -10,9 +10,9 @@ import requests
 from openai import OpenAI
 
 # ── Required env vars (per hackathon spec) ────────────────────────────────────
-API_BASE_URL: str = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
+API_BASE_URL: str = os.environ["API_BASE_URL"]                  # ✅ FIXED: no Groq fallback
 MODEL_NAME: str = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
-HF_TOKEN: str = os.getenv("HF_TOKEN", os.getenv("GROQ_API_KEY", ""))
+HF_TOKEN: str = os.environ["HF_TOKEN"]                          # ✅ FIXED: no GROQ_API_KEY fallback
 
 # ── Environment endpoint (your HF Space) ──────────────────────────────────────
 ENV_BASE_URL: str = os.getenv(
@@ -370,16 +370,13 @@ def run_task(
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:
-    # Build OpenAI-compatible client (Groq by default, OpenAI if key provided)
+    # Build OpenAI-compatible client using Scaler-injected env vars
     client: OpenAI | None = None
-    if HF_TOKEN:
-        try:
-            client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
-            print(f"Using LLM: {MODEL_NAME} @ {API_BASE_URL}", flush=True, file=sys.stderr)
-        except Exception as exc:
-            print(f"[DEBUG] Client init failed: {exc}", flush=True, file=sys.stderr)
-    else:
-        print("No HF_TOKEN/GROQ_API_KEY found. Using deterministic fallback.", file=sys.stderr)
+    try:
+        client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+        print(f"Using LLM: {MODEL_NAME} @ {API_BASE_URL}", flush=True, file=sys.stderr)
+    except Exception as exc:
+        print(f"[DEBUG] Client init failed: {exc}", flush=True, file=sys.stderr)
 
     env_client = ERTriageEnvClient(base_url=ENV_BASE_URL)
 
