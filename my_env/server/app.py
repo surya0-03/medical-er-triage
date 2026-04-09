@@ -176,7 +176,7 @@ def grade_episode(session_id: str = Query(default="default", min_length=1)) -> d
             env = session["env"]
             s = env.state()
             avg = float(s.get("average_step_reward", 0.0))
-            score = round(max(0.0, min(1.0, (avg + 1.45) / 2.90)), 4)
+            score = round(max(1e-6, min(1 - 1e-6, (avg + 1.45) / 2.90)), 4)
             return {
                 "score": score,
                 "passed": score >= 0.70,
@@ -200,7 +200,7 @@ def detailed_score(session_id: str = Query(default="default", min_length=1)) -> 
             env = session["env"]
             s = env.state()
             avg = float(s.get("average_step_reward", 0.0))
-            score = round(max(0.0, min(1.0, (avg + 1.45) / 2.90)), 4)
+            score = round(max(1e-6, min(1 - 1e-6, (avg + 1.45) / 2.90)), 4)
 
             priority_queue = []
             for runtime in env._patients.values():
