@@ -10,9 +10,9 @@ import requests
 from openai import OpenAI
 
 # ── Required env vars (per hackathon spec) ────────────────────────────────────
-API_BASE_URL: str = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+API_BASE_URL: str = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
 MODEL_NAME: str = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
-API_KEY: str = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or ""
+HF_TOKEN: str = os.getenv("HF_TOKEN", os.getenv("GROQ_API_KEY", ""))
 
 # ── Environment endpoint (your HF Space) ──────────────────────────────────────
 ENV_BASE_URL: str = os.getenv(
@@ -232,7 +232,6 @@ def parse_action(content: str) -> dict[str, Any]:
 
 
 def deterministic_fallback(action_mask: dict[str, Any], obs: dict[str, Any] | None = None) -> dict[str, Any]:
-    # Build patient lookup maps from observation
     patient_esi: dict[str, int] = {}
     patient_map: dict[str, dict[str, Any]] = {}
     if obs is not None:
@@ -240,10 +239,8 @@ def deterministic_fallback(action_mask: dict[str, Any], obs: dict[str, Any] | No
         for p in observation.get("patients", []):
             pid = str(p["patient_id"])
             patient_map[pid] = p
-            # Infer ESI from symptoms/vitals rather than trusting public esi_level
             patient_esi[pid] = infer_esi_from_patient(p)
 
-    # 1. assign_esi: pick most critical (lowest inferred ESI) untriaged patient
     assign_ids = action_mask.get("assign_esi_patient_ids", [])
     if assign_ids:
         pid = min(assign_ids, key=lambda p: (patient_esi.get(p, 3), p))
@@ -251,7 +248,6 @@ def deterministic_fallback(action_mask: dict[str, Any], obs: dict[str, Any] | No
         return {"action_type": "assign_esi", "patient_id": pid,
                 "esi_level": esi_level, "bed_type": None, "protocol_type": None}
 
-    # 2. allocate_bed: most critical patient first, correct bed for their ESI
     allocate = action_mask.get("allocate_bed", {})
     if allocate:
         sorted_pids = sorted(allocate.keys(), key=lambda p: (patient_esi.get(p, 3), p))
@@ -266,7 +262,6 @@ def deterministic_fallback(action_mask: dict[str, Any], obs: dict[str, Any] | No
                 return {"action_type": "allocate_bed", "patient_id": pid,
                         "bed_type": bed, "esi_level": None, "protocol_type": None}
 
-    # 3. trigger_protocol: only if symptoms actually match (avoids -0.30 penalty)
     protocol_map = action_mask.get("trigger_protocol", {})
     for pid in sorted(protocol_map.keys()):
         protocols = protocol_map[pid]
@@ -278,13 +273,11 @@ def deterministic_fallback(action_mask: dict[str, Any], obs: dict[str, Any] | No
             return {"action_type": "trigger_protocol", "patient_id": pid,
                     "protocol_type": matched, "esi_level": None, "bed_type": None}
 
-    # 4. discharge: pick first eligible
     discharge_ids = action_mask.get("discharge_patient_ids", [])
     if discharge_ids:
         return {"action_type": "discharge", "patient_id": discharge_ids[0],
                 "esi_level": None, "bed_type": None, "protocol_type": None}
 
-    # 5. divert only if allowed
     if action_mask.get("divert_allowed", False):
         return {"action_type": "divert", "patient_id": None,
                 "esi_level": None, "bed_type": None, "protocol_type": None}
@@ -294,11 +287,13 @@ def deterministic_fallback(action_mask: dict[str, Any], obs: dict[str, Any] | No
 
 
 def choose_action(
-    client: OpenAI,
+    client: OpenAI | None,
     task: str,
     obs: dict[str, Any],
     action_mask: dict[str, Any],
 ) -> dict[str, Any]:
+    if client is None:
+        return deterministic_fallback(action_mask, obs)
 
     prompt = build_user_prompt(task, obs, action_mask)
     try:
@@ -323,7 +318,7 @@ def choose_action(
 
 def run_task(
     task: TaskName,
-    client: OpenAI,
+    client: OpenAI | None,
     env_client: ERTriageEnvClient,
 ) -> None:
     seed = TASK_SEEDS[task]
@@ -368,13 +363,21 @@ def run_task(
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:
-    # Build OpenAI-compatible client using Scaler-injected env vars
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-    print(f"Using LLM: {MODEL_NAME} @ {API_BASE_URL}", flush=True, file=sys.stderr)
+    api_key = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or ""
+    api_base = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
+
+    client: OpenAI | None = None
+    if api_key:
+        try:
+            client = OpenAI(base_url=api_base, api_key=api_key)
+            print(f"Using LLM: {MODEL_NAME} @ {api_base}", flush=True, file=sys.stderr)
+        except Exception as exc:
+            print(f"[DEBUG] Client init failed: {exc}", flush=True, file=sys.stderr)
+    else:
+        print("[DEBUG] No API key found. Using deterministic fallback.", file=sys.stderr)
 
     env_client = ERTriageEnvClient(base_url=ENV_BASE_URL)
 
-    # Warm up the HF Space — retries until healthy or times out after 90s
     import time
     for attempt in range(9):
         try:
@@ -388,7 +391,7 @@ def main() -> None:
         time.sleep(10)
 
     for task in ("easy", "medium", "hard"):
-        run_task(task=task, client=client, env_client=env_client)
+        run_task(task=task, client=client, env_client=env_client)  # type: ignore[arg-type]
 
 
 if __name__ == "__main__":
