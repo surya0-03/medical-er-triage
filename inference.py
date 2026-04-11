@@ -10,9 +10,9 @@ import requests
 from openai import OpenAI
 
 # ── Required env vars (per hackathon spec) ────────────────────────────────────
-API_BASE_URL: str = os.environ["API_BASE_URL"]
+API_BASE_URL: str = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
 MODEL_NAME: str = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
-API_KEY: str = os.environ["API_KEY"]
+API_KEY: str = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or ""
 
 # ── Environment endpoint (your HF Space) ──────────────────────────────────────
 ENV_BASE_URL: str = os.getenv(
@@ -350,8 +350,18 @@ def run_task(
 
 
 def main() -> None:
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-    print(f"Using LLM: {MODEL_NAME} @ {API_BASE_URL}", flush=True, file=sys.stderr)
+    api_key = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or ""
+    api_base = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
+
+    client: OpenAI | None = None
+    if api_key:
+        try:
+            client = OpenAI(base_url=api_base, api_key=api_key)
+            print(f"Using LLM: {MODEL_NAME} @ {api_base}", flush=True, file=sys.stderr)
+        except Exception as exc:
+            print(f"[DEBUG] Client init failed: {exc}", flush=True, file=sys.stderr)
+    else:
+        print("[DEBUG] No API key found. Using deterministic fallback.", file=sys.stderr)
 
     env_client = ERTriageEnvClient(base_url=ENV_BASE_URL)
 
