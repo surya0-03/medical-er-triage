@@ -221,7 +221,7 @@ endpoints:
 scoring:
   reward_range: [-1.0, 1.0]
   success_threshold: 0.0
-  score_formula: sum(step_rewards)
+  score_formula: mean(step_rewards)
 
 constraints:
   max_runtime_seconds: 1200
