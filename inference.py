@@ -350,7 +350,7 @@ def run_task(
 
 
 def main() -> None:
-    api_key = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+    api_key = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or "placeholder"
     api_base = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
 
     client = OpenAI(base_url=api_base, api_key=api_key)
