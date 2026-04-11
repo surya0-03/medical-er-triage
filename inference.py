@@ -10,9 +10,9 @@ import requests
 from openai import OpenAI
 
 # ── Required env vars (per hackathon spec) ────────────────────────────────────
-API_BASE_URL: str = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
+API_BASE_URL: str = os.environ["API_BASE_URL"]
 MODEL_NAME: str = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
-API_KEY: str = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or ""
+API_KEY: str = os.environ["API_KEY"]
 
 # ── Environment endpoint (your HF Space) ──────────────────────────────────────
 ENV_BASE_URL: str = os.getenv(
@@ -35,8 +35,6 @@ SCORING RULES (maximise reward):
 PRIORITY: Always handle the most critical patients first (lowest ESI number = most critical). Follow the action_mask exactly — only act on IDs listed there."""
 
 TASK_SEEDS: dict[str, int] = {"easy": 42, "medium": 43, "hard": 44}
-
-# ── Symptom/vitals-based ESI inference (used by deterministic fallback) ───────
 
 def infer_esi_from_patient(patient: dict[str, Any]) -> int:
     vitals = patient.get("vitals", {})
@@ -104,8 +102,6 @@ def match_protocol(patient: dict[str, Any], available_protocols: list[str]) -> s
     return None
 
 
-# ── Logging (mandatory stdout format) ────────────────────────────────────────
-
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
@@ -123,8 +119,6 @@ def log_end(success: bool, steps: int, score: float, rewards: list[float]) -> No
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
-
-# ── Environment HTTP client ───────────────────────────────────────────────────
 
 class ERTriageEnvClient:
     def __init__(self, base_url: str) -> None:
@@ -169,8 +163,6 @@ class ERTriageEnvClient:
         resp.raise_for_status()
         return resp.json()
 
-
-# ── LLM agent ────────────────────────────────────────────────────────────────
 
 def build_user_prompt(task: str, obs: dict[str, Any], action_mask: dict[str, Any]) -> str:
     observation = obs.get("observation", obs)
@@ -310,8 +302,6 @@ def choose_action(
         return deterministic_fallback(action_mask, obs)
 
 
-# ── Task runner ───────────────────────────────────────────────────────────────
-
 def run_task(
     task: TaskName,
     client: OpenAI | None,
@@ -359,21 +349,9 @@ def run_task(
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
-
 def main() -> None:
-    api_key = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or ""
-    api_base = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
-
-    client: OpenAI | None = None
-    if api_key:
-        try:
-            client = OpenAI(base_url=api_base, api_key=api_key)
-            print(f"Using LLM: {MODEL_NAME} @ {api_base}", flush=True, file=sys.stderr)
-        except Exception as exc:
-            print(f"[DEBUG] Client init failed: {exc}", flush=True, file=sys.stderr)
-    else:
-        print("[DEBUG] No API key found. Using deterministic fallback.", file=sys.stderr)
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+    print(f"Using LLM: {MODEL_NAME} @ {API_BASE_URL}", flush=True, file=sys.stderr)
 
     env_client = ERTriageEnvClient(base_url=ENV_BASE_URL)
 
