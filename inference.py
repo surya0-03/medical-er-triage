@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 import requests
+import httpx
 from openai import OpenAI
 
 # ── Required env vars (per hackathon spec) ────────────────────────────────────
@@ -353,8 +354,19 @@ def main() -> None:
     api_key = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or "placeholder"
     api_base = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
 
-    client = OpenAI(base_url=api_base, api_key=api_key)
-    print(f"Using LLM: {MODEL_NAME} @ {api_base}", flush=True, file=sys.stderr)
+    client: OpenAI | None = None
+    if api_key and api_key != "placeholder":
+        try:
+            client = OpenAI(
+                base_url=api_base,
+                api_key=api_key,
+                http_client=httpx.Client(),
+            )
+            print(f"Using LLM: {MODEL_NAME} @ {api_base}", flush=True, file=sys.stderr)
+        except Exception as exc:
+            print(f"[DEBUG] Client init failed: {exc}", flush=True, file=sys.stderr)
+    else:
+        print("[DEBUG] No API key found. Using deterministic fallback.", file=sys.stderr)
 
     env_client = ERTriageEnvClient(base_url=ENV_BASE_URL)
 
